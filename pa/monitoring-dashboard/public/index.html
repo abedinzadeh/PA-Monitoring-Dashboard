@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+<title>PA Monitoring Dashboard</title>
+
+<!-- Tailwind + Chart.js -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        screens: {
+          '3xl': '1920px',
+          '4xl': '2560px',
+          '5xl': '3840px',
+        }
+      }
+    }
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+/* ONLY CHANGE THE BACKGROUND COLOR - KEEP EVERYTHING ELSE */
+body:not(.dark) {
+  background: linear-gradient(135deg, #e0f7fa, #e3f2fd) !important;
+}
+
+.server-card {
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.server-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+}
+
+.log-box {
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+  font-size: 12px;
+}
+.show-log, .heal-now {
+  background-color: #2196f3 !important; /* Blue */
+  color: white !important;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  text-decoration: none;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.show-log:hover, .heal-now:hover {
+  background-color: #1976d2 !important; /* Darker blue on hover */
+}
+
+
+body.dark .show-log,
+body.dark .heal-now {
+  background-color: #6b7280 !important; /* Gray */
+  color: white !important;
+}
+
+body.dark .show-log:hover,
+body.dark .heal-now:hover {
+  background-color: #4b5563 !important; /* Darker gray on hover */
+}
+
+
+
+#darkModeBtn {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 60;
+}
+
+.card-canvas { width: 100% !important; height: 56px !important; display: block; }
+
+body.dark {
+  background: #1a202c !important;
+  color: #f7fafc;
+}
+
+.unreachable-badge {
+  background-color: #dc2626 !important;
+  color: #fef2f2 !important;
+}
+
+.fail-badge {
+  background-color: #d97706 !important;
+  color: #fffbeb !important;
+}
+
+/* Optimize for TV display */
+.server-grid {
+  display: grid;
+  gap: 1rem;
+  /* Remove padding: 1rem; since the .card already has padding */
+}
+
+/* Responsive grid that scales with screen size */
+@media (min-width: 640px) { .server-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 768px) { .server-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1024px) { .server-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1280px) { .server-grid { grid-template-columns: repeat(5, 1fr); } }
+@media (min-width: 1536px) { .server-grid { grid-template-columns: repeat(6, 1fr); } }
+@media (min-width: 1920px) { .server-grid { grid-template-columns: repeat(7, 1fr); } }
+@media (min-width: 2560px) { .server-grid { grid-template-columns: repeat(9, 1fr); } }
+@media (min-width: 3840px) { .server-grid { grid-template-columns: repeat(12, 1fr); } }
+
+/* Constrain the overall chart container */
+.chart-container {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Card styling for server container */
+.card {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+body.dark .card {
+  background: #374151;
+}
+</style>
+</head>
+<body class="min-h-screen transition-colors duration-200" id="bodyEl">
+
+<div class="w-full">
+
+  <div class="flex justify-center mb-4 pt-4">
+    <img src="logo.png" alt="logo" class="max-h-20 object-contain">
+  </div>
+
+  <button id="darkModeBtn" class="bg-gray-700 hover:bg-gray-800 text-white px-3 py-2 rounded shadow">
+    🌙 Dark
+  </button>
+
+  <div class="title mb-6 mx-4" style="margin: 10px 0 20px; background: white; padding: 15px 30px; border-radius: 12px; font-size: 24px; font-weight: bold; color: #666666; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); text-align: center;">
+    PA Monitoring Dashboard
+  </div>
+
+  <div class="chart-container px-4">
+    <div class="flex justify-center items-center gap-3 mb-6">
+      <button id="refreshBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow">🔄 Refresh Now</button>
+    </div>
+
+    <div class="flex justify-center gap-4 mb-6">
+      <div class="px-4 py-2 bg-green-700 text-green-100 rounded font-semibold">OK: <span id="okCount">0</span></div>
+      <div class="px-4 py-2 fail-badge rounded font-semibold">Fail: <span id="failCount">0</span></div>
+      <div class="px-4 py-2 unreachable-badge rounded font-semibold">Unreachable: <span id="errorCount">0</span></div>
+    </div>
+
+    <div class="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mb-6 shadow">
+      <h2 class="text-center font-semibold mb-3">Overall Status Summary</h2>
+      <canvas id="overallChart" height="60"></canvas>
+    </div>
+  </div> <!-- This closes the chart-container div -->
+
+  <div class="card" style="max-width: 100%; margin-top: 20px;">
+    <div id="serverContainer" class="server-grid"></div>
+  </div>
+
+</div>
+
+<script>
+// ======= Utilities =======
+function escapeHTML(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+
+// ======= Globals =======
+const serverContainer = document.getElementById('serverContainer');
+const overallCtx = document.getElementById('overallChart').getContext('2d');
+let perServerCharts = {};
+let serverHistories = {};
+
+const overallChart = new Chart(overallCtx, {
+  type: 'bar',
+  data: { labels:['OK','Fail','Unreachable'], datasets:[{data:[0,0,0], backgroundColor:['#22c55e','#d97706','#dc2626']}] },
+  options:{ responsive:true, maintainAspectRatio:true, plugins:{legend:{display:false}, tooltip:{enabled:true}}, scales:{y:{beginAtZero:true, ticks:{stepSize:1}, grid:{display:true}}, x:{grid:{display:false}}}, layout:{padding:{top:10,bottom:10}} }
+});
+
+// ======= Server Ordering =======
+async function getServerOrder() {
+  try {
+    const response = await fetch('/servers-order');
+    const servers = await response.json();
+    return servers;
+  } catch (error) {
+    console.error('Failed to get server order:', error);
+    return [];
+  }
+}
+
+// ======= Load & render =======
+async function loadStatus() {
+  try {
+    console.log('🔄 Loading server status...');
+    const res = await fetch('/server-status');
+
+    if(!res.ok) throw new Error('status fetch failed: '+res.status);
+    const servers = await res.json();
+
+    console.log('📊 Received servers:', servers);
+
+    serverContainer.innerHTML='';
+    let ok=0, fail=0, error=0;
+
+    Object.values(perServerCharts).forEach(c=>{try{c.destroy();}catch(e){}});
+    perServerCharts={};
+
+    // Get the original server order and sort
+    const originalOrder = await getServerOrder();
+    const sortedServers = servers.sort((a, b) => {
+      const indexA = originalOrder.findIndex(server => server.ip === a.ip);
+      const indexB = originalOrder.findIndex(server => server.ip === b.ip);
+      return indexA - indexB;
+    });
+
+    sortedServers.forEach((s, idx)=>{
+      const name = s.name||(`server-${idx}`);
+      const ip = s.ip||('unknown-'+idx);
+      const status=(s.status||'unknown').toLowerCase();
+
+
+
+      if(status==='ok') ok++; else if(status==='fail') fail++; else error++;
+
+      if(!serverHistories[ip]) serverHistories[ip]=[];
+      const now = new Date();
+      serverHistories[ip].push({timestamp:now, status: status==='ok'?1:0});
+      const twentyFourHoursAgo = new Date(now.getTime() - 24*60*60*1000);
+      serverHistories[ip] = serverHistories[ip].filter(entry=>entry.timestamp>=twentyFourHoursAgo);
+
+      const hourlyBuckets = new Array(24).fill(0);
+      const currentHour = now.getHours();
+      serverHistories[ip].forEach(entry=>{
+        const entryHour = entry.timestamp.getHours();
+        const hourDiff = (currentHour-entryHour+24)%24;
+        if(hourDiff<24) hourlyBuckets[23-hourDiff]=Math.max(hourlyBuckets[23-hourDiff], entry.status);
+      });
+
+      const cardId = `card-${ip.replace(/\./g,'-')}`;
+      const canvasId = `spark-${ip.replace(/\./g,'-')}`;
+      const logId = `log-${ip.replace(/\./g,'-')}`;
+      const borderClass = status==='ok'?'border-green-500':status==='fail'?'border-yellow-500':'border-red-500';
+      const bgClass = 'bg-white dark:bg-gray-800';
+      const icon = status==='ok'?'<div class="w-3 h-3 rounded-full bg-green-500"></div>':status==='fail'?'<div class="w-3 h-3 rounded-full bg-yellow-500"></div>':'<div class="w-3 h-3 rounded-full bg-red-500"></div>';
+
+      const selfHealing = s.selfHealing ? escapeHTML(s.selfHealing) : 'N/A';
+      const lastHeal = s.lastHealTime ? new Date(s.lastHealTime).toLocaleString() : '';
+
+	const cardHtml = `
+	  <div id="${cardId}" class="server-card border ${borderClass} ${bgClass} rounded-lg p-3 cursor-pointer" role="link">
+	    <div>
+	      <div class="flex items-center gap-2 mb-1">${icon}<div class="text-md font-semibold truncate" title="${escapeHTML(name)}">${escapeHTML(name)}</div></div>
+	      <div class="text-xs text-gray-600 dark:text-gray-300 truncate font-bold" title="${escapeHTML(ip)}">${escapeHTML(ip)}</div>
+	    </div>
+
+	    <div class="mt-2"><canvas id="${canvasId}" class="card-canvas"></canvas></div>
+
+	    <!-- Dual Healing Status -->
+	    <div class="mt-2 space-y-2 text-xs">
+	      ${s.firstHealingStatus && s.firstHealingStatus !== 'Not Attempted' ? `
+	        <div class="border-b pb-1">
+	          <div class="flex justify-between">
+	            <span class="text-gray-500">1st Heal:</span>
+	            <span class="font-bold ${s.firstHealingStatus.includes('Done') ? 'text-green-600' : 'text-red-600'}">
+	              ${s.firstHealingStatus}
+	            </span>
+	          </div>
+	        </div>
+	      ` : ''}
+
+	      ${s.secondHealingStatus && s.secondHealingStatus !== 'Not Attempted' ? `
+	        <div class="pt-1">
+	          <div class="flex justify-between">
+	            <span class="text-gray-500">2nd Heal:</span>
+	            <span class="font-bold ${s.secondHealingStatus.includes('Done') ? 'text-green-600' : 'text-red-600'}">
+	              ${s.secondHealingStatus}
+	            </span>
+	          </div>
+	        </div>
+	      ` : ''}
+	    </div>
+
+	    <div class="mt-2 flex gap-2 flex-wrap">
+	      <button data-ip="${ip}" class="show-log text-xs">Show Log</button>
+	      <button data-ip="${ip}" data-name="${escapeHTML(name)}" class="download-log text-green-600 dark:text-green-400 underline text-xs hidden">Download</button>
+	      <button data-ip="${ip}" class="heal-now text-xs">Manual Heal</button>
+	    </div>
+
+	    <div id="${logId}" class="hidden mt-2 log-box p-2 rounded bg-black text-green-300 text-xs">
+	      ${escapeHTML(s.log||'')}
+	      ${s.firstHealDetails ? `\n\n--- First Healing ---\n${s.firstHealDetails}` : ''}
+	      ${s.firstSaveDetails ? `\n\n--- First Save ---\n${s.firstSaveDetails}` : ''}
+	      ${s.secondHealDetails ? `\n\n--- Second Healing ---\n${s.secondHealDetails}` : ''}
+	      ${s.secondSaveDetails ? `\n\n--- Second Save ---\n${s.secondSaveDetails}` : ''}
+	    </div>
+	  </div>
+	`;
+
+        // INSERT THE HTML FIRST
+        serverContainer.insertAdjacentHTML('beforeend', cardHtml);
+
+
+        // THEN ADD EVENT LISTENERS (AFTER HTML is inserted)
+        const cardElement = document.getElementById(cardId);
+        cardElement.addEventListener('click', ()=>{
+          if(ip && ip!=='unknown-'+idx) window.open(`http://${ip}:3000`,'_blank');
+        });
+
+        // Show Log button event listener
+        const showBtn = cardElement.querySelector('.show-log');
+        showBtn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          const logEl = document.getElementById(logId);
+          logEl.classList.toggle('hidden');
+          showBtn.textContent = logEl.classList.contains('hidden') ? 'Show Log' : 'Hide Log';
+        });
+
+        // Download Log button event listener
+        const dlBtn = cardElement.querySelector('.download-log');
+        dlBtn.addEventListener('click', async ev => {
+          ev.stopPropagation();
+          const ipAttr = ev.currentTarget.dataset.ip;
+          const nameAttr = ev.currentTarget.dataset.name || 'server';
+          try {
+            const r = await fetch('/server-status');
+            const list = await r.json();
+            const found = list.find(x => x.ip === ipAttr);
+            const content = (found && found.log) ? found.log : '';
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${nameAttr}_${ipAttr}.log`;
+            a.click();
+            URL.revokeObjectURL(url);
+          } catch (e) {
+            console.error('download log failed', e);
+          }
+        });
+
+        // Manual Heal button event listener
+        const healBtn = cardElement.querySelector('.heal-now');
+        healBtn.addEventListener('click', async ev => {
+          ev.stopPropagation();
+          healBtn.disabled = true;
+          healBtn.textContent = 'Checking Status...';
+
+          try {
+            console.log(`🔍 Manual heal: Checking real-time status of ${ip}`);
+
+            // Step 1: Check the CURRENT real-time status of just this server
+            healBtn.textContent = 'Running Status Check...';
+
+            const statusCheckResponse = await fetch(`/check-single-server?ip=${ip}`);
+            const statusResult = await statusCheckResponse.json();
+
+            console.log('🔍 Status check result:', statusResult); // DEBUG LOG
+
+            if (!statusResult.success) {
+              throw new Error('Failed to check server status: ' + (statusResult.error || 'Unknown error'));
+            }
+
+            const currentStatus = statusResult.status; // 'ok', 'fail', 'error', or 'fail_io_error'
+            const skipHealing = statusResult.skipHealing; // true for io error cases
+
+            console.log(`📊 Server ${ip} current status: ${currentStatus}, skipHealing: ${skipHealing}`);
+
+            // Handle IO ERROR exception - show firewall message
+            if (skipHealing === true) {
+              console.log('🚫 IO Error detected - skipping healing'); // DEBUG LOG
+              healBtn.textContent = 'Firewall Issue';
+              setTimeout(() => {
+                healBtn.disabled = false;
+                healBtn.textContent = 'Manual Heal';
+              }, 5000);
+              alert(`🚫 Firewall Exception Detected\n\nServer ${ip} has registration issues due to firewall/network problems.\n\nHealing process cannot fix this issue. Manual network intervention required.`);
+              return;
+            }
+
+            // Handle server currently OK - no need to heal
+            if (currentStatus === 'ok') {
+              console.log('✅ Server is OK - skipping healing'); // DEBUG LOG
+              healBtn.textContent = 'Server is OK';
+              setTimeout(() => {
+                healBtn.disabled = false;
+                healBtn.textContent = 'Manual Heal';
+              }, 3000);
+              alert(`ℹ️ Server ${ip} is currently healthy (status: ${currentStatus}). No healing needed.`);
+              return;
+            }
+
+            // Step 2: Server is currently failing - proceed with manual heal
+            console.log(`🔧 Server ${ip} is currently failing (status: ${currentStatus}), starting healing...`);
+            healBtn.textContent = 'Healing...';
+
+            const healResponse = await fetch('/heal-now', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ip })
+            });
+            const data = await healResponse.json();
+
+            if (data.success) {
+              // Healing completed - update display
+              healBtn.textContent = 'Healing Done';
+
+              // Single refresh after enough time for healing to complete
+              setTimeout(() => {
+                loadStatus();
+
+                // Re-enable button after refresh completes
+                setTimeout(() => {
+                  healBtn.disabled = false;
+                  healBtn.textContent = 'Manual Heal';
+                }, 3000);
+              }, 10000); // Wait 10 seconds before refresh
+
+              alert(`✅ Manual healing completed for ${ip}. Page will refresh in 10 seconds to show updated status.`);
+            } else {
+
+              throw new Error(data.error || 'Healing process failed');
+            }
+
+          } catch (err) {
+            console.error('Manual heal error:', err);
+            healBtn.textContent = 'Failed';
+            alert(`❌ Manual healing failed: ${err.message}`);
+            setTimeout(() => {
+              healBtn.disabled = false;
+              healBtn.textContent = 'Manual Heal';
+            }, 3000);
+          }
+        });
+        // THEN CREATE THE CHART
+        const canvasEl=document.getElementById(canvasId).getContext('2d');
+        const timeLabels=[];
+        for(let i=23;i>=0;i--){
+          const hour=new Date(now.getTime()-i*60*60*1000).getHours();
+          timeLabels.push(hour.toString().padStart(2,'0')+':00');
+        }
+
+        perServerCharts[ip]=new Chart(canvasEl,{
+          type:'line',
+          data:{labels:timeLabels,datasets:[{label:'uptime',data:hourlyBuckets,borderColor:'#16a34a',backgroundColor:'#16a34a33',stepped:'middle',fill:true,pointRadius:0,borderWidth:2}]},
+          options:{responsive:true,maintainAspectRatio:false,scales:{x:{display:false},y:{min:0,max:1,display:false}},plugins:{legend:{display:false}},elements:{line:{tension:0}}}
+        });
+
+    });
+
+    document.getElementById('okCount').textContent=ok;
+    document.getElementById('failCount').textContent=fail;
+    document.getElementById('errorCount').textContent=error;
+    overallChart.data.datasets[0].data=[ok,fail,error];
+    overallChart.update();
+
+    console.log('✅ Status loaded successfully:', {ok, fail, error});
+
+  }catch(err){
+    console.error('loadStatus error',err);
+    serverContainer.innerHTML='<div class="col-span-full text-center text-red-500">Error loading server status: ' + err.message + '</div>';
+  }
+}
+
+// ======= Refresh =======
+async function triggerRefresh() {
+  const btn=document.getElementById('refreshBtn');
+  btn.disabled=true; btn.innerHTML='⏳ Refreshing...'; btn.classList.remove('bg-blue-600','hover:bg-blue-700'); btn.classList.add('bg-gray-400','cursor-not-allowed');
+  try{
+    const response=await fetch('/refresh-now',{method:'POST'});
+    const data=await response.json();
+    if(data.success){ setTimeout(()=>{loadStatus(); setTimeout(()=>{btn.disabled=false; btn.innerHTML='🔄 Refresh Now'; btn.classList.remove('bg-gray-400','cursor-not-allowed'); btn.classList.add('bg-blue-600','hover:bg-blue-700');},3000);},2000);}
+  }catch(error){console.error('Error triggering refresh:',error); btn.disabled=false; btn.innerHTML='🔄 Refresh Now'; btn.classList.remove('bg-gray-400','cursor-not-allowed'); btn.classList.add('bg-blue-600','hover:bg-blue-700');}
+}
+
+// ======= ADD PAGE AUTO-REFRESH HERE =======
+function startPageAutoRefresh() {
+  // Clear existing timer
+  if (window._pageRefreshTimer) {
+    clearInterval(window._pageRefreshTimer);
+  }
+
+  // Refresh page every 2 minutes to show healing results
+  window._pageRefreshTimer = setInterval(() => {
+    console.log('🔄 Auto-refreshing page display (every 2 minutes)');
+    loadStatus(); // Just update the display, don't run check.sh
+  }, 2 * 60 * 1000); // 2 minutes
+
+  console.log('✅ Page auto-refresh started: every 2 minutes');
+}
+
+// ======= CLIENT AUTO-REFRESH (Triggers actual server checks) =======
+function startClientAutoRefresh() {
+  // Clear existing timer
+  if (window._clientAutoRefreshTimer) {
+    clearInterval(window._clientAutoRefreshTimer);
+  }
+
+  // Auto-refresh every 30 minutes (triggers actual server health checks)
+  const refreshInterval = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+  window._clientAutoRefreshTimer = setInterval(() => {
+    console.log('🔄 Client auto-refresh triggered (60 minutes) - running server health checks');
+    triggerRefresh(); // This calls the actual server health check
+  }, refreshInterval);
+
+  console.log('✅ Client auto-refresh started: every 60 minutes');
+}
+
+// ======= Dark Mode =======
+const darkBtn=document.getElementById('darkModeBtn');
+darkBtn.addEventListener('click', ()=>{document.body.classList.toggle('dark'); darkBtn.textContent=document.body.classList.contains('dark')?'☀️ Light':'🌙 Dark';});
+
+// ======= Event Listeners =======
+document.getElementById('refreshBtn').addEventListener('click', triggerRefresh);
+
+// Initial load
+loadStatus();
+startPageAutoRefresh(); // Page display refresh every 2 minutes
+startClientAutoRefresh(); // ← ADD THIS LINE - Server health checks every 60 minutes
+
+</script>
+
+</body>
+</html>

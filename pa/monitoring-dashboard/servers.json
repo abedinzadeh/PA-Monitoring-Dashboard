@@ -1,0 +1,10 @@
+{
+  "active": [
+    { "name": "Test Store", "ip": "10.0.0.1", "password": "alt" },
+    { "name": "Yankalilla", "ip": "10.0.0.2", "password": "default" }
+  ],
+  "disabled": [
+    { "name": "West Beach", "ip": "10.0.0.3", "password": "default" },
+    { "name": "Mount Barker", "ip": "10.0.0.4", "password": "default" }
+  ]
+}

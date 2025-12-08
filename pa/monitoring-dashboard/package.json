@@ -1,0 +1,15 @@
+{
+  "name": "pa-monitoring-dashboard",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PA Monitoring Dashboard",
+  "main": "dashboard.js",
+  "scripts": {
+    "start": "node dashboard.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "nodemailer": "^7.0.11"
+  }
+}
