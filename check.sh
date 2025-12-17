@@ -12,10 +12,10 @@ NC="\033[0m" # No Color
 USER="serveradmin"
 
 # Default password for most servers
-DEFAULT_PASSWORD='CHANGE_ME'
+DEFAULT_PASSWORD='!/"Xm-pUc,2n^9#D'
 
 # Alternative password
-ALTERNATIVE_PASSWORD='CHANGE_ME'
+ALTERNATIVE_PASSWORD='iJQ8?@2=,[\rM%oj'
 
 # Path to the PA log file (same for all servers)
 LOG_PATH="/home/serveradmin/pa/pa.log"
@@ -32,8 +32,8 @@ DELAY_BETWEEN_SERVERS=0.9
 
 # Password aliases for easy management
 declare -A PASSWORD_ALIASES=(
-    ["default"]='CHANGE_ME'
-    ["alt"]='CHANGE_ME'
+    ["default"]='!/"Xm-pUc,2n^9#D'
+    ["alt"]='iJQ8?@2=,[\rM%oj'
 )
 
 # ------------------------
@@ -187,9 +187,9 @@ check_server_concurrent() {
     local server_entry="$1"
     local server=$(get_server_ip "$server_entry")
     local password=$(get_server_password "$server_entry")
-    
+
     echo -n "Checking $server ... "
-    
+
     # Use single quotes to preserve special characters in password
     local output
     output=$(timeout $SSH_TIMEOUT sshpass -p "$password" ssh \
@@ -233,7 +233,7 @@ check_server_concurrent() {
             echo -e "${RED}❌ Auth failed${NC}"
             ;;
     esac
-    
+
     # Output result in a parseable format
     echo "RESULT:$server:$status:$log_output"
 }
@@ -346,10 +346,10 @@ generate_status_json() {
     # Start background checks
     for server_entry in "${SERVERS[@]}"; do
         wait_for_slot
-        
+
         server=$(get_server_ip "$server_entry")
         echo "[$((checked+1))/$total] Starting check: $server"
-        
+
         # Start background check
         ( check_server_concurrent "$server_entry" >> "$result_file" ) &
         pids+=($!)
@@ -367,7 +367,7 @@ generate_status_json() {
     while IFS= read -r line; do
         if [[ "$line" == RESULT:* ]]; then
             IFS=':' read -r _ server status log_output <<< "$line"
-            
+
             # Get server name
             server_name="${server_names[$server]:-Unknown}"
             server_name=$(printf "%s" "$server_name" | tr -d '\000-\037' | tr -d '\177-\377' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | tr '\n\r' ' ' | tr -cd '[:print:]')
@@ -378,7 +378,7 @@ generate_status_json() {
             status_data+="{\"name\":\"$server_name\",\"ip\":\"$server\",\"status\":\"$status\",\"log\":\"$log_output\",\"timestamp\":\"$(date -Iseconds)\"}"
             first=false
             ((checked++))
-            
+
             echo "[$checked/$total] Processed: $server - $status"
         fi
     done < "$result_file"
@@ -388,18 +388,30 @@ generate_status_json() {
 
     status_data+="]"
 
-    # Validate and write JSON
-    if echo "$status_data" | python3 -m json.tool > /dev/null 2>&1; then
-        echo "$status_data" > "$status_file"
-        file_size=$(stat -c%s "$status_file" 2>/dev/null || echo 0)
-        echo ""
-        echo "✅ Status JSON updated: $status_file ($file_size bytes, $checked servers)"
-    else
-        echo "❌ JSON validation failed - creating backup"
-        echo "$status_data" > "${status_file}.invalid"
-        echo "[{\"name\":\"System\",\"ip\":\"0.0.0.0\",\"status\":\"error\",\"log\":\"JSON generation failed\",\"timestamp\":\"$(date -Iseconds)\"}]" > "$status_file"
-    fi
-}
+                                # Validate and write JSON (ATOMIC)
+                                if echo "$status_data" | python3 -m json.tool > /dev/null 2>&1; then
+                                    tmp_file="${status_file}.tmp"
+
+                                    # Write to temp file first
+                                    echo "$status_data" > "$tmp_file"
+
+                                    # Atomic replace
+                                    mv "$tmp_file" "$status_file"
+
+                                    file_size=$(stat -c%s "$status_file" 2>/dev/null || echo 0)
+                                    echo ""
+                                    echo "✅ Status JSON updated atomically: $status_file ($file_size bytes, $checked servers)"
+                                else
+                                    echo "❌ JSON validation failed - creating backup"
+
+                                    # Keep invalid full data for debugging
+                                    echo "$status_data" > "${status_file}.invalid"
+
+                                    # Atomic write fallback error state
+                                    tmp_file="${status_file}.tmp"
+                                    echo "[{\"name\":\"System\",\"ip\":\"0.0.0.0\",\"status\":\"error\",\"log\":\"JSON generation failed\",\"timestamp\":\"$(date -Iseconds)\"}]" > "$tmp_file"
+                                    mv "$tmp_file" "$status_file"
+                                fi
 
 # ------------------------
 # Check Dependencies
